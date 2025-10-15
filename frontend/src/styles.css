@@ -1,0 +1,22 @@
+:root{ --brand-blue:#094eff; --brand-red:#ff2d2d; --bg:#f7fafc; --muted:#6b7280; }
+body{ margin:0; font-family:Inter,Arial,sans-serif; background:var(--bg); color:#111; }
+.app-header{ display:flex; justify-content:space-between; align-items:center; padding:12px 20px; background:linear-gradient(90deg,var(--brand-blue),var(--brand-red)); color:#fff; }
+.brand{ display:flex; align-items:center; gap:12px; }
+.logo-placeholder{ width:48px; height:48px; background:#fff; color:var(--brand-blue); font-weight:bold; display:flex; align-items:center; justify-content:center; border-radius:6px; }
+.app-main{ display:flex; gap:20px; padding:20px; }
+.calendar-wrap{ flex:1; background:#fff; padding:12px; border-radius:8px; box-shadow:0 4px 10px rgba(2,6,23,0.08); }
+.side-panel{ width:360px; background:#fff; padding:12px; border-radius:8px; box-shadow:0 4px 10px rgba(2,6,23,0.06); }
+.controls{ display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+table.grid{ border-collapse:collapse; width:100%; }
+table.grid th, table.grid td{ border:1px solid #e6eefc; padding:6px; min-width:34px; text-align:center; font-size:13px; }
+.fixed-col{ position:sticky; left:0; background:#fff; text-align:left; padding-left:8px; min-width:240px; }
+td.cell{ cursor:pointer; }
+td.cell.empty{ background:#fff; }
+td.cell.filled{ background:linear-gradient(90deg, rgba(9,78,255,0.08), rgba(255,26,26,0.06)); }
+.worker-item{ padding:8px; border-bottom:1px dashed #eee; display:flex; justify-content:space-between; align-items:center; }
+.btn{ padding:6px 10px; border-radius:6px; background:var(--brand-blue); color:#fff; border:none; cursor:pointer; }
+.btn.secondary{ background:#fff; color:var(--brand-blue); border:1px solid var(--brand-blue); }
+.modal{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:#fff; padding:16px; border-radius:8px; box-shadow:0 8px 30px rgba(2,6,23,0.2); z-index:1000; width:520px; }
+.overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:900; }
+.small{ font-size:13px; color:var(--muted); }
+.warn{ color:#b45309; margin-left:8px; font-weight:600; }

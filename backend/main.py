@@ -14,10 +14,9 @@ if not encoded_key:
     raise RuntimeError("❌ FIREBASE_KEY не найден в переменных окружения. Добавь его на Render.")
 
 try:
-    decoded_key = base64.b64decode(encoded_key).decode()
-    cred_dict = json.loads(decoded_key)
+    cred_dict = json.loads(encoded_key)
 except Exception as e:
-    raise RuntimeError(f"Ошибка при декодировании FIREBASE_KEY: {e}")
+    raise RuntimeError(f"Ошибка при загрузке FIREBASE_KEY: {e}")
 
 if not firebase_admin._apps:
     cred = credentials.Certificate(cred_dict)

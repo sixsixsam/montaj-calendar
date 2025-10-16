@@ -1,6 +1,8 @@
 import json
+import base64
 
-with open("serviceAccountKey.json", "r") as f:
+with open("backend/serviceAccountKey.json", "r") as f:
     data = f.read()
 
-print(json.dumps(data))
+encoded = base64.b64encode(data.encode()).decode()
+print(encoded)

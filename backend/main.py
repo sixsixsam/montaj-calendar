@@ -1,19 +1,34 @@
 import os
+import json
+import base64
+import datetime
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth
-from google.cloud import firestore
-import datetime
+from firebase_admin import credentials, auth as firebase_auth, firestore
 
-# --- 🔥 Firebase инициализация через локальный JSON ---
-cred = credentials.Certificate("serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
-firestore_db = firestore.Client()
+# --- 🔥 Firebase инициализация через переменную окружения ---
+encoded_key = os.getenv("FIREBASE_KEY")
 
+if not encoded_key:
+    raise RuntimeError("❌ FIREBASE_KEY не найден в переменных окружения. Добавь его на Render.")
+
+try:
+    decoded_key = base64.b64decode(encoded_key).decode()
+    cred_dict = json.loads(decoded_key)
+except Exception as e:
+    raise RuntimeError(f"Ошибка при декодировании FIREBASE_KEY: {e}")
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate(cred_dict)
+    firebase_admin.initialize_app(cred)
+
+firestore_db = firestore.client()
+
+# --- FastAPI app ---
 app = FastAPI(title="Montaj Scheduler API (Firestore)")
 
-# CORS - change to your frontend origin in production
+# --- CORS ---
 origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,

@@ -4,40 +4,30 @@ import base64
 from fastapi import FastAPI
 from .api import router as api_router
 
-# --- Firebase Admin SDK ---
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-cred = None
+# --- Инициализация Firebase через переменную окружения ---
+firebase_key_b64 = os.environ.get("FIREBASE_KEY_B64")
 
-# --- Используем переменную окружения для Render Free ---
-if os.environ.get("FIREBASE_KEY_B64"):
-    try:
-        key_b64 = os.environ["FIREBASE_KEY_B64"]
-        key_json = base64.b64decode(key_b64).decode("utf-8")
-        cred_obj = json.loads(key_json)
-        cred = credentials.Certificate(cred_obj)
-        print("✅ Firebase initialized from environment variable")
-    except Exception as e:
-        raise RuntimeError(f"❌ Ошибка инициализации Firebase из переменной окружения: {e}")
-else:
-    # --- Локальная разработка через файл ---
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    SERVICE_KEY_PATH = os.path.join(BASE_DIR, "..", "serviceAccountKey.json")
-    if not os.path.exists(SERVICE_KEY_PATH):
-        raise FileNotFoundError(f"❌ Не найден файл serviceAccountKey.json по пути: {SERVICE_KEY_PATH}")
-    cred = credentials.Certificate(SERVICE_KEY_PATH)
-    print(f"✅ Firebase initialized from file {SERVICE_KEY_PATH}")
+if not firebase_key_b64:
+    raise RuntimeError("❌ FIREBASE_KEY_B64 не задана в переменных окружения")
 
-# Инициализация Firebase
-if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
+try:
+    key_json = base64.b64decode(firebase_key_b64).decode("utf-8")
+    cred_dict = json.loads(key_json)
+    cred = credentials.Certificate(cred_dict)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
+    print("✅ Firebase initialized from environment variable")
+except Exception as e:
+    raise RuntimeError(f"❌ Ошибка инициализации Firebase: {e}")
 
 # Клиент Firestore
 firestore_db = firestore.client()
 
-# --- FastAPI init ---
-app = FastAPI(title='Montaj Scheduler API')
+# --- FastAPI ---
+app = FastAPI(title="Montaj Scheduler API")
 
 # --- Seed admin ---
 def seed_admin():
@@ -48,7 +38,7 @@ def seed_admin():
             "username": "admin",
             "full_name": "Администратор",
             "role": "admin",
-            "hashed_password": "$2b$12$9ZuYc8hE6Kz...",  # TODO: вставить настоящий bcrypt
+            "hashed_password": "$2b$12$9ZuYc8hE6Kz..."  # TODO: настоящий bcrypt
         })
         print("✅ Seeded admin/adminpass")
     else:

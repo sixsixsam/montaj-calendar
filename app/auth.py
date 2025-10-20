@@ -32,10 +32,11 @@ async def get_current_user(authorization: str | None = Header(None)):
 
 
 # Проверка роли пользователя
-def require_role(role: str):
+def require_role(*roles: str):
     def dependency(current_user: dict = Depends(get_current_user)):
-        if current_user["role"] != role:
+        if current_user["role"] not in roles:
             raise HTTPException(status_code=403, detail="Forbidden")
         return current_user
     return dependency
+
 

@@ -67,7 +67,4 @@ def get_project(project_id: str):
     data["id"] = doc.id
     return data
 
-# 🔹 Обработка preflight-запросов (CORS)
-@router.options("/{project_id}")
-def options_project(project_id: str):
-    return {"ok": True}
+

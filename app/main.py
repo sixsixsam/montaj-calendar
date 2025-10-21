@@ -14,9 +14,10 @@ firebase_origins = [
     "http://localhost:5173",
 ]
 
+# 🔹 Универсально читаем переменные окружения
 origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()] or firebase_origins
 
-# ✅ CORS middleware
+# ✅ CORS Middleware (универсальный)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -35,10 +36,7 @@ app.include_router(assignments.router)
 app.include_router(requests.router)
 app.include_router(reports.router)
 
-# ⚠️ УДАЛИ ГЛОБАЛЬНЫЙ @app.options("/{path:path}") !!!
-# CORS middleware уже сам отвечает на preflight-запросы
-
-# 🔹 /me — профиль
+# 🔹 Текущий пользователь
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
     uid = current_user["uid"]
@@ -51,7 +49,7 @@ async def me(current_user: dict = Depends(get_user)):
         "role": data.get("role", "Не указана"),
     }
 
-# 🔹 /health — проверка
+# 🔹 Проверка состояния
 @app.get("/health")
 async def health():
     return {"ok": True}

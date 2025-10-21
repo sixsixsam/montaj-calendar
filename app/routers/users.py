@@ -59,7 +59,3 @@ def delete_user(user_id: str):
     return {"id": user_id, "ok": True}
 
 
-
-@router.options("/{user_id}")
-def options_user_id(user_id: str):
-    return {"ok": True}

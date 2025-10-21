@@ -1,9 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from ..auth import require_role, get_user
+from datetime import datetime, timedelta
+from ..auth import require_role
 from ..firestore import db
-from datetime import datetime
+
+router = APIRouter(prefix="/assignments", tags=["assignments"])
+
+# =============================
+# 📘 МОДЕЛИ
+# =============================
 
 class AssignmentCreate(BaseModel):
     projectId: str
@@ -13,8 +19,11 @@ class AssignmentCreate(BaseModel):
     dateEnd: str     # "YYYY-MM-DD"
     workerIds: List[str] = []
     workerNames: List[str] = []
+    sectionId: Optional[str] = None
+    sectionName: Optional[str] = None
     state: str = "in_progress"
     comments: Optional[str] = ""
+
 
 class AssignmentUpdate(BaseModel):
     statusId: Optional[str] = None
@@ -23,10 +32,15 @@ class AssignmentUpdate(BaseModel):
     dateEnd: Optional[str] = None
     workerIds: Optional[List[str]] = None
     workerNames: Optional[List[str]] = None
+    sectionId: Optional[str] = None
+    sectionName: Optional[str] = None
     state: Optional[str] = None
     comments: Optional[str] = None
 
-router = APIRouter(prefix="/assignments", tags=["assignments"])
+
+# =============================
+# 📗 РОУТЫ
+# =============================
 
 @router.get("/", dependencies=[Depends(require_role("admin","manager","installer","worker"))])
 def list_assignments(
@@ -34,60 +48,102 @@ def list_assignments(
     date_to: Optional[str] = Query(None),
     worker_uid: Optional[str] = Query(None),
     project_id: Optional[str] = Query(None),
+    section_id: Optional[str] = Query(None),
 ):
+    """Получить список назначений с фильтрами"""
     q = db.collection("assignments")
-    if worker_uid:
-        q = q.where("worker_uid", "==", worker_uid)
+
     if project_id:
-        q = q.where("project_id", "==", project_id)
-    # простая фильтрация по датам в памяти (для Firestore сложнее строить составной индекс)
-    items = [{ "id": d.id, **(d.to_dict() or {}) } for d in q.stream()]
+        q = q.where("projectId", "==", project_id)
+    if section_id:
+        q = q.where("sectionId", "==", section_id)
+    if worker_uid:
+        q = q.where("workerIds", "array_contains", worker_uid)
+
+    docs = [{"id": d.id, **(d.to_dict() or {})} for d in q.stream()]
+
+    # Простая фильтрация по диапазону дат
     if date_from:
-        items = [x for x in items if x.get("date") and x["date"] >= date_from]
+        docs = [x for x in docs if x.get("dateEnd", "") >= date_from]
     if date_to:
-        items = [x for x in items if x.get("date") and x["date"] <= date_to]
-    return items
+        docs = [x for x in docs if x.get("dateStart", "") <= date_to]
+
+    return docs
+
 
 @router.post("/", dependencies=[Depends(require_role("admin","manager"))])
-def create_assignments(payload: AssignmentCreate):
-    dates: List[str] = []
-    if payload.dates:
-        dates = payload.dates
-    elif payload.start_date and payload.end_date:
-        cur = datetime.fromisoformat(payload.start_date)
-        end = datetime.fromisoformat(payload.end_date)
-        while cur <= end:
-            dates.append(cur.date().isoformat())
-            cur += timedelta(days=1)
-    else:
-        raise HTTPException(400, detail="Provide dates OR start_date & end_date")
+def create_assignment(payload: AssignmentCreate):
+    """Создание назначения на диапазон дат"""
+    try:
+        start = datetime.fromisoformat(payload.dateStart)
+        end = datetime.fromisoformat(payload.dateEnd)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректный формат дат (YYYY-MM-DD)")
+
+    if end < start:
+        raise HTTPException(status_code=400, detail="dateEnd не может быть раньше dateStart")
 
     batch = db.batch()
-    for d in dates:
+    cur = start
+    count = 0
+
+    while cur <= end:
         ref = db.collection("assignments").document()
-        batch.set(ref, {
-            "project_id": payload.project_id,
-            "worker_uid": payload.worker_uid,
-            "date": d,
-            "created_at": datetime.utcnow().isoformat()
-        })
+        data = {
+            "projectId": payload.projectId,
+            "statusId": payload.statusId,
+            "statusName": payload.statusName,
+            "dateStart": payload.dateStart,
+            "dateEnd": payload.dateEnd,
+            "date": cur.date().isoformat(),  # чтобы удобно фильтровать по конкретному дню
+            "workerIds": payload.workerIds,
+            "workerNames": payload.workerNames,
+            "sectionId": payload.sectionId,
+            "sectionName": payload.sectionName,
+            "state": payload.state,
+            "comments": payload.comments or "",
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        batch.set(ref, data)
+        cur += timedelta(days=1)
+        count += 1
+
     batch.commit()
-    return {"ok": True, "count": len(dates)}
+    return {"ok": True, "count": count}
+
 
 @router.put("/{assignment_id}", dependencies=[Depends(require_role("admin","manager"))])
 def update_assignment(assignment_id: str, payload: AssignmentUpdate):
+    """Обновление назначения"""
     ref = db.collection("assignments").document(assignment_id)
-    if not ref.get().exists:
-        raise HTTPException(404, "Assignment not found")
-    updates = {k:v for k,v in payload.model_dump(exclude_none=True).items()}
+    doc = ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
         ref.update(updates)
     return {"ok": True}
 
+
 @router.delete("/{assignment_id}", dependencies=[Depends(require_role("admin","manager"))])
 def delete_assignment(assignment_id: str):
+    """Удаление назначения"""
     ref = db.collection("assignments").document(assignment_id)
     if ref.get().exists:
         ref.delete()
     return {"ok": True}
 
+
+# =============================
+# ⚙️ CORS preflight (OPTIONS)
+# =============================
+
+@router.options("/", include_in_schema=False)
+def options_root():
+    return {"ok": True}
+
+@router.options("/{assignment_id}", include_in_schema=False)
+def options_id(assignment_id: str):
+    return {"ok": True}

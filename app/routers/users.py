@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Literal, Optional
-from ..auth import get_user, require_role
+from ..auth import require_role, create_firebase_user
 from ..firestore import db
 from datetime import datetime
 
@@ -16,6 +16,12 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[Role] = None
 
+class UserCreateFull(BaseModel):
+    username: EmailStr
+    full_name: str
+    role: Role
+    password: str
+
 router = APIRouter(prefix="/users", tags=["users"])
 
 # 🔹 Список пользователей
@@ -24,7 +30,7 @@ def list_users():
     docs = db.collection("users").stream()
     return [{"id": d.id, **(d.to_dict() or {})} for d in docs]
 
-# 🔹 Создание пользователя
+# 🔹 Создание Firestore-пользователя (старый метод)
 @router.post("/", dependencies=[Depends(require_role("admin"))])
 def create_user(payload: UserCreate):
     doc_id = payload.username.strip().lower()
@@ -38,6 +44,21 @@ def create_user(payload: UserCreate):
         "created_at": datetime.utcnow().isoformat()
     })
     return {"id": doc_id}
+
+# 🔹 Новый метод: полный Firebase + Firestore
+@router.post("/create-full", dependencies=[Depends(require_role("admin"))])
+def create_full_user(payload: UserCreateFull):
+    try:
+        user = create_firebase_user(payload.username, payload.password, payload.full_name)
+        db.collection("users").document(user.uid).set({
+            "username": payload.username,
+            "full_name": payload.full_name,
+            "role": payload.role,
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        return {"uid": user.uid, "ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # 🔹 Обновление пользователя
 @router.put("/{user_id}", dependencies=[Depends(require_role("admin"))])
@@ -57,5 +78,3 @@ def delete_user(user_id: str):
     if ref.get().exists:
         ref.delete()
     return {"id": user_id, "ok": True}
-
-

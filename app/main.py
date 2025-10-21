@@ -1,23 +1,37 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
-from .routers import users, projects, statuses, workers, assignments, requests, reports
+from .routers import (
+    users,
+    projects,
+    statuses,
+    workers,
+    assignments,
+    requests,
+    reports,
+    sections,  # ✅ добавлен новый модуль
+)
 from .auth import get_user
 from .firestore import db
 
-app = FastAPI(title="SistemaB API")
+# =====================================================
+# 🚀 Инициализация приложения
+# =====================================================
+app = FastAPI(title="SistemaB API", version="1.0.0")
 
-# 🔹 Разрешённые источники
+# =====================================================
+# 🌍 CORS НАСТРОЙКИ
+# =====================================================
 firebase_origins = [
     "https://sistemab-montaj-6b8c1.web.app",
     "https://sistemab-montaj-6b8c1.firebaseapp.com",
     "http://localhost:5173",
 ]
 
-# 🔹 Универсально читаем переменные окружения
+# Если в ENV есть переменная ALLOWED_ORIGINS — используем её,
+# иначе fallback на firebase_origins.
 origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()] or firebase_origins
 
-# ✅ CORS Middleware (универсальный)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -27,7 +41,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔹 Подключаем все роутеры
+# =====================================================
+# 🔗 Подключаем роутеры
+# =====================================================
 app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(statuses.router)
@@ -35,8 +51,11 @@ app.include_router(workers.router)
 app.include_router(assignments.router)
 app.include_router(requests.router)
 app.include_router(reports.router)
+app.include_router(sections.router)  # ✅ теперь /sections доступен
 
-# 🔹 Текущий пользователь
+# =====================================================
+# 👤 Информация о текущем пользователе
+# =====================================================
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
     uid = current_user["uid"]
@@ -49,7 +68,9 @@ async def me(current_user: dict = Depends(get_user)):
         "role": data.get("role", "Не указана"),
     }
 
-# 🔹 Проверка состояния
+# =====================================================
+# 🩺 Проверка состояния API
+# =====================================================
 @app.get("/health")
 async def health():
     return {"ok": True}

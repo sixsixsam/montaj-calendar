@@ -4,7 +4,7 @@ from firebase_admin import auth as fb_auth, credentials
 from fastapi import Header, HTTPException, Depends
 from .firestore import db
 
-# 🔹 Инициализация Firebase (учитывает Render secrets)
+# 🔹 Инициализация Firebase (для Render или локально)
 if not firebase_admin._apps:
     cred_path = (
         "/etc/secrets/service_account.json"
@@ -13,6 +13,20 @@ if not firebase_admin._apps:
     )
     cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
+
+
+# 🔹 Создание Firebase-пользователя (используется в /users/create-full)
+def create_firebase_user(email: str, password: str, full_name: str):
+    try:
+        user = fb_auth.create_user(
+            email=email,
+            password=password,
+            display_name=full_name,
+            disabled=False,
+        )
+        return user
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Firebase error: {e}")
 
 
 # 🔹 Получение текущего пользователя по Firebase ID Token
@@ -32,24 +46,16 @@ async def get_user(authorization: str | None = Header(None)):
 
     email_lower = email.strip().lower()
 
-    # 🔹 Ищем пользователя в Firestore по нескольким вариантам
+    # 🔹 Ищем пользователя в Firestore
     users_ref = db.collection("users")
-
-    # 1️⃣ — по полному email (основной способ)
     q = users_ref.where("username", "==", email_lower).limit(1).stream()
     user_doc = next(q, None)
 
-    # 2️⃣ — по UID (если пользователь добавлен вручную)
     if not user_doc:
+        # fallback — по UID
         q2 = users_ref.where("username", "==", decoded.get("uid")).limit(1).stream()
         user_doc = next(q2, None)
 
-    # 3️⃣ — fallback: если это явно админ без email
-    if not user_doc:
-        q3 = users_ref.where("username", "==", "admin").limit(1).stream()
-        user_doc = next(q3, None)
-
-    # 4️⃣ — если всё ещё ничего — ошибка
     if not user_doc:
         raise HTTPException(status_code=403, detail=f"User '{email_lower}' not found in Firestore")
 

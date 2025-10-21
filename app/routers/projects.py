@@ -1,10 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from ..auth import require_role, get_user
 from ..firestore import db
 from datetime import datetime
 
+# 🔹 Вложенная модель для разделов проекта
+class ProjectSection(BaseModel):
+    id: Optional[str] = None       # id раздела (из коллекции /sections)
+    name: str                      # Название раздела (СОТ, СКУД и т.д.)
+    active: bool = True            # Флаг активности
+
+# 🔹 Создание проекта
 class ProjectCreate(BaseModel):
     name: str
     start_date: str  # "YYYY-MM-DD"
@@ -12,7 +19,10 @@ class ProjectCreate(BaseModel):
     status_id: Optional[str] = None
     manager_uid: Optional[str] = None
     notes: Optional[str] = ""
+    active: bool = True
+    sections: Optional[List[ProjectSection]] = []  # список разделов (вложенных)
 
+# 🔹 Обновление проекта
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     start_date: Optional[str] = None
@@ -20,6 +30,8 @@ class ProjectUpdate(BaseModel):
     status_id: Optional[str] = None
     manager_uid: Optional[str] = None
     notes: Optional[str] = None
+    active: Optional[bool] = None
+    sections: Optional[List[ProjectSection]] = None
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -36,7 +48,7 @@ def create_project(payload: ProjectCreate):
     doc = payload.model_dump()
     doc["created_at"] = datetime.utcnow().isoformat()
     ref.set(doc)
-    return {"id": ref.id}
+    return {"id": ref.id, **doc}
 
 # 🔹 Обновление проекта
 @router.put("/{project_id}", dependencies=[Depends(require_role("admin","manager"))])
@@ -46,6 +58,7 @@ def update_project(project_id: str, payload: ProjectUpdate):
         raise HTTPException(404, detail="Project not found")
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
         ref.update(updates)
     return {"ok": True}
 
@@ -57,7 +70,7 @@ def delete_project(project_id: str):
         ref.delete()
     return {"ok": True}
 
-# 🔹 Получение одного проекта (исправлено!)
+# 🔹 Получение одного проекта
 @router.get("/{project_id}", dependencies=[Depends(require_role("admin","manager","installer","worker"))])
 def get_project(project_id: str):
     doc = db.collection("projects").document(project_id).get()
@@ -67,4 +80,7 @@ def get_project(project_id: str):
     data["id"] = doc.id
     return data
 
-
+# 🔹 Preflight (CORS)
+@router.options("/{project_id}", include_in_schema=False)
+def options_project(project_id: str):
+    return {"ok": True}

@@ -1,31 +1,33 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
+from .routers import users, projects, statuses, workers, assignments, requests, reports
 from .auth import get_user
 from .firestore import db
-from .routers import users, projects, statuses, workers, assignments, requests, reports
 
 app = FastAPI(title="SistemaB API")
 
-# ✅ Разрешённые источники (CORS)
-origins = [
+# 🔹 Явно перечисляем разрешённые домены
+firebase_origins = [
     "https://sistemab-montaj-6b8c1.web.app",
     "https://sistemab-montaj-6b8c1.firebaseapp.com",
     "http://localhost:5173",
-    "http://127.0.0.1:5173",
 ]
 
-# ✅ Настройка CORS — разрешаем все нужные запросы с Firebase
+# 🔹 Дополнительно — универсальная защита (если Render меняет ENV)
+origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()] or firebase_origins
+
+# ✅ Добавляем CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,              # Разрешённые источники
-    allow_origin_regex=".*",            # Разрешает любые поддомены
-    allow_credentials=True,             # Передача cookies/токенов
-    allow_methods=["*"],                # Все HTTP методы
-    allow_headers=["*"],                # Все заголовки
+    allow_origins=origins,
+    allow_origin_regex=r".*montaj.*|.*firebaseapp\.com|.*web\.app|http://localhost.*",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ✅ Подключаем все роутеры
+# 🔹 Подключаем все роутеры
 app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(statuses.router)
@@ -34,25 +36,20 @@ app.include_router(assignments.router)
 app.include_router(requests.router)
 app.include_router(reports.router)
 
-# ✅ Эндпоинт для проверки авторизации
+# 🔹 /me — информация о пользователе
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
-    """Возвращает данные текущего пользователя из Firestore"""
-    uid = current_user.get("uid")
-    if not uid:
-        raise HTTPException(status_code=401, detail="Invalid user token")
-
+    uid = current_user["uid"]
     user_doc = db.collection("users").document(uid).get()
-    user_data = user_doc.to_dict() or {}
-
+    data = user_doc.to_dict() or {}
     return {
         "uid": uid,
         "email": current_user.get("email"),
-        "full_name": user_data.get("full_name", "Без имени"),
-        "role": user_data.get("role", "Не указана"),
+        "full_name": data.get("full_name", "Без имени"),
+        "role": data.get("role", "Не указана"),
     }
 
-# ✅ Проверка здоровья сервиса (для UptimeRobot)
+# 🔹 /health — для Render ping
 @app.get("/health")
 async def health():
     return {"ok": True}

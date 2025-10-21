@@ -7,27 +7,27 @@ from .firestore import db
 
 app = FastAPI(title="SistemaB API")
 
-# 🔹 Явно перечисляем разрешённые домены
 firebase_origins = [
     "https://sistemab-montaj-6b8c1.web.app",
     "https://sistemab-montaj-6b8c1.firebaseapp.com",
     "http://localhost:5173",
 ]
 
-# 🔹 Дополнительно — универсальная защита (если Render меняет ENV)
 origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()] or firebase_origins
 
-# ✅ Добавляем CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r".*montaj.*|.*firebaseapp\.com|.*web\.app|http://localhost.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Authorization", "Content-Type"],
 )
 
-# 🔹 Подключаем все роутеры
+@app.options("/{path:path}")
+async def preflight_handler():
+    return {"ok": True}
+
 app.include_router(users.router)
 app.include_router(projects.router)
 app.include_router(statuses.router)
@@ -36,7 +36,6 @@ app.include_router(assignments.router)
 app.include_router(requests.router)
 app.include_router(reports.router)
 
-# 🔹 /me — информация о пользователе
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
     uid = current_user["uid"]
@@ -49,7 +48,6 @@ async def me(current_user: dict = Depends(get_user)):
         "role": data.get("role", "Не указана"),
     }
 
-# 🔹 /health — для Render ping
 @app.get("/health")
 async def health():
     return {"ok": True}

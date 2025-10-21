@@ -91,8 +91,6 @@ def delete_assignment(assignment_id: str):
         ref.delete()
     return {"ok": True}
 
-@router.options("/")
-def options_root(): return {"ok": True}
 
 @router.options("/{assignment_id}")
 def options_id(assignment_id: str): return {"ok": True}

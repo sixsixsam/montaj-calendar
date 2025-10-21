@@ -49,7 +49,6 @@ def delete_worker(worker_id: str):
         ref.delete()
     return {"ok": True}
 
-@router.options("/")
-def options_root(): return {"ok": True}
+
 @router.options("/{worker_id}")
 def options_id(worker_id: str): return {"ok": True}

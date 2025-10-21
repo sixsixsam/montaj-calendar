@@ -47,7 +47,6 @@ def delete_status(status_id: str):
         ref.delete()
     return {"ok": True}
 
-@router.options("/")
-def options_root(): return {"ok": True}
+
 @router.options("/{status_id}")
 def options_id(status_id: str): return {"ok": True}

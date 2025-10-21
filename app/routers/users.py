@@ -58,10 +58,7 @@ def delete_user(user_id: str):
         ref.delete()
     return {"id": user_id, "ok": True}
 
-# 🔹 CORS preflight
-@router.options("/")
-def options_users():
-    return {"ok": True}
+
 
 @router.options("/{user_id}")
 def options_user_id(user_id: str):

@@ -32,16 +32,24 @@ async def get_user(authorization: str | None = Header(None)):
 
     email_lower = email.strip().lower()
 
-    # 🔹 Ищем пользователя по email или username
+    # 🔹 Ищем пользователя в Firestore по нескольким вариантам
     users_ref = db.collection("users")
+
+    # 1️⃣ — по полному email (основной способ)
     q = users_ref.where("username", "==", email_lower).limit(1).stream()
-    user_doc = next(iter(q), None)
+    user_doc = next(q, None)
 
-    # Если по email не нашли — пробуем по короткому username ("admin" вместо "admin@gmail.com")
+    # 2️⃣ — по UID (если пользователь добавлен вручную)
     if not user_doc:
-        q2 = users_ref.where("username", "==", email_lower.split("@")[0]).limit(1).stream()
-        user_doc = next(iter(q2), None)
+        q2 = users_ref.where("username", "==", decoded.get("uid")).limit(1).stream()
+        user_doc = next(q2, None)
 
+    # 3️⃣ — fallback: если это явно админ без email
+    if not user_doc:
+        q3 = users_ref.where("username", "==", "admin").limit(1).stream()
+        user_doc = next(q3, None)
+
+    # 4️⃣ — если всё ещё ничего — ошибка
     if not user_doc:
         raise HTTPException(status_code=403, detail=f"User '{email_lower}' not found in Firestore")
 

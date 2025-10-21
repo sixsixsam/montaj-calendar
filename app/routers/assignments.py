@@ -1,17 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from typing import List, Optional
-from ..auth import require_role
+from typing import Optional, List
+from ..auth import require_role, get_user
 from ..firestore import db
-from datetime import datetime, timedelta
+from datetime import datetime
 
 class AssignmentCreate(BaseModel):
-    project_id: str
-    worker_uid: str
-    # либо перечислить даты, либо задать диапазон:
-    dates: Optional[List[str]] = None           # ["YYYY-MM-DD", ...]
-    start_date: Optional[str] = None            # если нет dates
-    end_date: Optional[str] = None
+    projectId: str
+    statusId: str
+    statusName: str
+    dateStart: str   # "YYYY-MM-DD"
+    dateEnd: str     # "YYYY-MM-DD"
+    workerIds: List[str] = []
+    workerNames: List[str] = []
+    state: str = "in_progress"
+    comments: Optional[str] = ""
+
+class AssignmentUpdate(BaseModel):
+    statusId: Optional[str] = None
+    statusName: Optional[str] = None
+    dateStart: Optional[str] = None
+    dateEnd: Optional[str] = None
+    workerIds: Optional[List[str]] = None
+    workerNames: Optional[List[str]] = None
+    state: Optional[str] = None
+    comments: Optional[str] = None
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
@@ -61,9 +74,25 @@ def create_assignments(payload: AssignmentCreate):
     batch.commit()
     return {"ok": True, "count": len(dates)}
 
+@router.put("/{assignment_id}", dependencies=[Depends(require_role("admin","manager"))])
+def update_assignment(assignment_id: str, payload: AssignmentUpdate):
+    ref = db.collection("assignments").document(assignment_id)
+    if not ref.get().exists:
+        raise HTTPException(404, "Assignment not found")
+    updates = {k:v for k,v in payload.model_dump(exclude_none=True).items()}
+    if updates:
+        ref.update(updates)
+    return {"ok": True}
+
 @router.delete("/{assignment_id}", dependencies=[Depends(require_role("admin","manager"))])
 def delete_assignment(assignment_id: str):
     ref = db.collection("assignments").document(assignment_id)
     if ref.get().exists:
         ref.delete()
     return {"ok": True}
+
+@router.options("/")
+def options_root(): return {"ok": True}
+
+@router.options("/{assignment_id}")
+def options_id(assignment_id: str): return {"ok": True}

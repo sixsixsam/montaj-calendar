@@ -4,13 +4,13 @@ from firebase_admin import auth as fb_auth, credentials
 from fastapi import Header, HTTPException, Depends
 from .firestore import db
 
-# Инициализация Firebase
+# 🔹 Инициализация Firebase (учитывает Render secrets)
 if not firebase_admin._apps:
     cred_path = "/etc/secrets/service_account.json" if os.path.exists("/etc/secrets/service_account.json") else "service_account.json"
     cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
 
-# Получение текущего пользователя по Firebase ID Token
+# 🔹 Получение текущего пользователя по Firebase ID Token
 async def get_user(authorization: str | None = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -25,17 +25,18 @@ async def get_user(authorization: str | None = Header(None)):
     user_doc = db.collection("users").document(uid).get()
     user_data = user_doc.to_dict() or {}
 
-    role = user_data.get("role")
+    # ⚙️ Очистка роли от кавычек и пробелов
+    role = (user_data.get("role") or "").strip().strip('"').strip("'")
     if not role:
         raise HTTPException(status_code=403, detail="User role not set")
-    
+
     decoded["role"] = role
     return decoded
 
-# Проверка роли (универсальная)
+# 🔹 Проверка роли (универсальная)
 def require_role(*roles: str):
     def dependency(current_user: dict = Depends(get_user)):
         if current_user["role"] not in roles:
-            raise HTTPException(status_code=403, detail="Forbidden")
+            raise HTTPException(status_code=403, detail=f"Forbidden for role {current_user['role']}")
         return current_user
     return dependency

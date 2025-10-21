@@ -1,27 +1,33 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from typing import Optional, Dict
 from ..auth import require_role
 from ..firestore import db
-from ..models import ReportQuery
+
+class LoadRequest(BaseModel):
+    date_from: str   # "YYYY-MM-DD"
+    date_to: str     # "YYYY-MM-DD"
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-@router.post("/worker-load", dependencies=[Depends(require_role('admin','manager','worker'))])
-async def worker_load(q: ReportQuery):
-    docs = db.collection('assignments').stream()
-    load = {}
-    for d in docs:
-        a = d.to_dict()
-        for wid in a.get('workerIds', []):
-            load[wid] = load.get(wid, 0) + 1
-    return load
-
-@router.post("/project-status", dependencies=[Depends(require_role('admin','manager'))])
-async def project_status(q: ReportQuery):
-    if not q.projectId:
-        return {}
-    docs = db.collection('assignments').where('projectId','==', q.projectId).stream()
-    stats = {'in_progress':0,'done_pending':0,'done_approved':0,'extend_requested':0}
-    for d in docs:
-        s = d.to_dict().get('state','in_progress')
-        stats[s] = stats.get(s,0)+1
-    return stats
+@router.post("/worker-load", dependencies=[Depends(require_role("admin","manager"))])
+def worker_load(payload: LoadRequest):
+    items = [{ "id": d.id, **(d.to_dict() or {}) } for d in db.collection("assignments").stream()]
+    items = [x for x in items if payload.date_from <= x.get("date","") <= payload.date_to]
+    # агрегируем по worker_uid
+    agg: Dict[str, int] = {}
+    for x in items:
+        w = x.get("worker_uid")
+        if not w: continue
+        agg[w] = agg.get(w, 0) + 1
+    # подтянем имена
+    out = []
+    for uid, cnt in agg.items():
+        udoc = db.collection("users").document(uid).get()
+        u = udoc.to_dict() or {}
+        out.append({
+            "worker_uid": uid,
+            "full_name": u.get("full_name", uid),
+            "days": cnt
+        })
+    return sorted(out, key=lambda r: r["full_name"])

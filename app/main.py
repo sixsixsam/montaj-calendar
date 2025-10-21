@@ -37,7 +37,15 @@ app.include_router(reports.router)
 
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
-    return {"uid": current_user["uid"], "role": current_user["role"]}
+    uid = current_user["uid"]
+    user_doc = db.collection("users").document(uid).get()
+    data = user_doc.to_dict() or {}
+    return {
+        "uid": uid,
+        "full_name": data.get("full_name", "Без имени"),
+        "role": data.get("role", "Не указана"),
+    }
+
     
 @app.get("/health")
 async def health():

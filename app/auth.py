@@ -6,37 +6,63 @@ from .firestore import db
 
 # 🔹 Инициализация Firebase (учитывает Render secrets)
 if not firebase_admin._apps:
-    cred_path = "/etc/secrets/service_account.json" if os.path.exists("/etc/secrets/service_account.json") else "service_account.json"
+    cred_path = (
+        "/etc/secrets/service_account.json"
+        if os.path.exists("/etc/secrets/service_account.json")
+        else "service_account.json"
+    )
     cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
+
 
 # 🔹 Получение текущего пользователя по Firebase ID Token
 async def get_user(authorization: str | None = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    
+
     token = authorization.split(" ")[-1]
     try:
         decoded = fb_auth.verify_id_token(token)
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-    
-    uid = decoded["uid"]
-    user_doc = db.collection("users").document(uid).get()
-    user_data = user_doc.to_dict() or {}
 
-    # ⚙️ Очистка роли от кавычек и пробелов
-    role = (user_data.get("role") or "").strip().strip('"').strip("'")
+    email = decoded.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="No email in token")
+
+    email_lower = email.strip().lower()
+
+    # 🔹 Ищем пользователя по email или username
+    users_ref = db.collection("users")
+    q = users_ref.where("username", "==", email_lower).limit(1).stream()
+    user_doc = next(iter(q), None)
+
+    # Если по email не нашли — пробуем по короткому username ("admin" вместо "admin@gmail.com")
+    if not user_doc:
+        q2 = users_ref.where("username", "==", email_lower.split("@")[0]).limit(1).stream()
+        user_doc = next(iter(q2), None)
+
+    if not user_doc:
+        raise HTTPException(status_code=403, detail=f"User '{email_lower}' not found in Firestore")
+
+    user_data = user_doc.to_dict() or {}
+    role = user_data.get("role")
     if not role:
         raise HTTPException(status_code=403, detail="User role not set")
 
     decoded["role"] = role
+    decoded["full_name"] = user_data.get("full_name", "")
     return decoded
+
 
 # 🔹 Проверка роли (универсальная)
 def require_role(*roles: str):
     def dependency(current_user: dict = Depends(get_user)):
         if current_user["role"] not in roles:
-            raise HTTPException(status_code=403, detail=f"Forbidden for role {current_user['role']}")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Forbidden for role '{current_user['role']}', allowed: {roles}",
+            )
         return current_user
+
     return dependency

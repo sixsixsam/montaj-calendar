@@ -22,10 +22,15 @@ router = APIRouter(prefix="/workers", tags=["workers"])
 # =====================================================
 # 📋 Список монтажников (из users, role=installer)
 # =====================================================
-@router.get("/", dependencies=[Depends(require_role("admin", "manager", "worker", "installer"))])
+@router.get("/", dependencies=[Depends(require_role("admin","manager","worker","installer"))])
 def list_workers():
-    docs = db.collection("users").where("role", "==", "installer").order_by("full_name").stream()
-    return [{"id": d.id, **(d.to_dict() or {})} for d in docs]
+    try:
+        docs = db.collection("users").where("role", "==", "installer").stream()
+        return [{"id": d.id, **(d.to_dict() or {})} for d in docs]
+    except Exception as e:
+        print("[ERROR list_workers]:", e)
+        raise HTTPException(500, str(e))
+
 
 # =====================================================
 # ➕ Создание монтажника (создаётся также в users)

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime  # ✅ нужно обязательно
 from .config import settings
 from .routers import (
     users,
@@ -9,7 +10,7 @@ from .routers import (
     assignments,
     requests,
     reports,
-    sections,  # ✅ добавлен новый модуль
+    sections,
 )
 from .auth import get_user
 from .firestore import db
@@ -20,7 +21,7 @@ from .firestore import db
 app = FastAPI(title="SistemaB API", version="1.0.0")
 
 # =====================================================
-# 🌍 CORS НАСТРОЙКИ
+# 🌍 CORS НАСТРОЙКИ (ставим СРАЗУ после инициализации!)
 # =====================================================
 firebase_origins = [
     "https://sistemab-montaj-6b8c1.web.app",
@@ -28,8 +29,6 @@ firebase_origins = [
     "http://localhost:5173",
 ]
 
-# Если в ENV есть переменная ALLOWED_ORIGINS — используем её,
-# иначе fallback на firebase_origins.
 origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()] or firebase_origins
 
 app.add_middleware(
@@ -42,7 +41,7 @@ app.add_middleware(
 )
 
 # =====================================================
-# 🔗 Подключаем роутеры
+# 🔗 Подключаем роутеры (только после CORS!)
 # =====================================================
 app.include_router(users.router)
 app.include_router(projects.router)
@@ -51,10 +50,10 @@ app.include_router(workers.router)
 app.include_router(assignments.router)
 app.include_router(requests.router)
 app.include_router(reports.router)
-app.include_router(sections.router)  # ✅ теперь /sections доступен
+app.include_router(sections.router)
 
 # =====================================================
-# 👤 Информация о текущем пользователе
+# 👤 Эндпоинт текущего пользователя
 # =====================================================
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
@@ -65,26 +64,24 @@ async def me(current_user: dict = Depends(get_user)):
     uid = current_user["uid"]
     email = current_user.get("email")
 
-    # 🔍 Ищем по firebase_uid
+    # 🔍 Ищем пользователя по Firebase UID
     docs = db.collection("users").where("firebase_uid", "==", uid).limit(1).get()
 
-    # Если нашли — достаём данные
     if docs:
         data = docs[0].to_dict()
     else:
-        # ⚙️ Если не нашли — создаём нового пользователя в Firestore
+        # 🆕 Автосоздание нового пользователя
         data = {
             "firebase_uid": uid,
             "username": email,
             "email": email,
             "full_name": current_user.get("name") or "Без имени",
-            "role": "installer",  # роль по умолчанию
+            "role": "installer",
             "created_at": datetime.utcnow().isoformat(),
         }
         db.collection("users").document(email).set(data)
         print(f"[AUTO] Добавлен новый пользователь Firestore: {email}")
 
-    # 🧾 Возвращаем ответ
     return {
         "uid": uid,
         "email": email,
@@ -93,7 +90,7 @@ async def me(current_user: dict = Depends(get_user)):
     }
 
 # =====================================================
-# 🩺 Проверка состояния API
+# 🩺 Healthcheck
 # =====================================================
 @app.get("/health")
 async def health():

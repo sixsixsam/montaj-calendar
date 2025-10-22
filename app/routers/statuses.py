@@ -5,6 +5,8 @@ from ..auth import require_role
 from ..firestore import db
 from datetime import datetime
 
+router = APIRouter(prefix="/statuses", tags=["statuses"])
+
 class StatusCreate(BaseModel):
     name: str
     color: Optional[str] = "#999999"
@@ -14,8 +16,6 @@ class StatusUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
     order: Optional[int] = None
-
-router = APIRouter(prefix="/statuses", tags=["statuses"])
 
 @router.get("/", dependencies=[Depends(require_role("admin","manager","worker","installer"))])
 def list_statuses():
@@ -37,6 +37,7 @@ def update_status(status_id: str, payload: StatusUpdate):
         raise HTTPException(404, "Status not found")
     updates = {k:v for k,v in payload.model_dump(exclude_none=True).items()}
     if updates:
+        updates["updated_at"] = datetime.utcnow().isoformat()
         ref.update(updates)
     return {"ok": True}
 

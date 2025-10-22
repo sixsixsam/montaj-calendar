@@ -58,13 +58,37 @@ app.include_router(sections.router)  # ✅ теперь /sections доступе
 # =====================================================
 @app.get("/me")
 async def me(current_user: dict = Depends(get_user)):
+    """
+    Возвращает профиль текущего пользователя.
+    Если пользователя нет в Firestore — создаёт его автоматически.
+    """
     uid = current_user["uid"]
-    user_doc = db.collection("users").document(uid).get()
-    data = user_doc.to_dict() or {}
+    email = current_user.get("email")
+
+    # 🔍 Ищем по firebase_uid
+    docs = db.collection("users").where("firebase_uid", "==", uid).limit(1).get()
+
+    # Если нашли — достаём данные
+    if docs:
+        data = docs[0].to_dict()
+    else:
+        # ⚙️ Если не нашли — создаём нового пользователя в Firestore
+        data = {
+            "firebase_uid": uid,
+            "username": email,
+            "email": email,
+            "full_name": current_user.get("name") or "Без имени",
+            "role": "installer",  # роль по умолчанию
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        db.collection("users").document(email).set(data)
+        print(f"[AUTO] Добавлен новый пользователь Firestore: {email}")
+
+    # 🧾 Возвращаем ответ
     return {
         "uid": uid,
-        "email": current_user.get("email"),
-        "full_name": data.get("full_name", "Без имени"),
+        "email": email,
+        "full_name": data.get("full_name", current_user.get("name") or "Без имени"),
         "role": data.get("role", "Не указана"),
     }
 

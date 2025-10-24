@@ -46,6 +46,12 @@ def _normalize_date(d: Optional[str]) -> str:
         return ""
     return d.split("T")[0]
 
+def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -> tuple[str, str]:
+    """Единообразно возвращает пару sectionId / sectionName"""
+    sid = section_id or None
+    sname = section_name or "Без раздела"
+    return sid, sname
+
 # =============================
 # 📗 РОУТЫ
 # =============================
@@ -58,6 +64,7 @@ def list_assignments(
     project_id: Optional[str] = Query(None),
     section_id: Optional[str] = Query(None),
 ):
+    """Возвращает список назначений с фильтрацией по дате/проекту/разделу"""
     q = db.collection("assignments")
 
     if project_id:
@@ -69,6 +76,7 @@ def list_assignments(
 
     docs = [{"id": d.id, **(d.to_dict() or {})} for d in q.stream()]
 
+    # Фильтр по диапазону дат
     if date_from:
         docs = [x for x in docs if x.get("dateEnd", x.get("dateStart","")) >= date_from]
     if date_to:
@@ -81,6 +89,7 @@ def list_assignments(
 def my_assignments(current_user: dict = Depends(get_user),
                    date_from: Optional[str] = Query(None),
                    date_to: Optional[str] = Query(None)):
+    """Назначения текущего монтажника"""
     email = (current_user.get("email") or "").strip().lower()
     if not email:
         return []
@@ -95,7 +104,9 @@ def my_assignments(current_user: dict = Depends(get_user),
 
 @router.post("/", dependencies=[Depends(require_role("admin","manager"))])
 def create_assignment(payload: AssignmentCreate):
-    """Создание назначения на диапазон дат"""
+    """Создание назначения на диапазон дат.
+       Исправлено: теперь каждое назначение чётко привязано к одному разделу
+       и не дублируется вниз в PlannerGrid."""
     start_str = _normalize_date(payload.dateStart)
     end_str = _normalize_date(payload.dateEnd or payload.dateStart)
 
@@ -107,6 +118,9 @@ def create_assignment(payload: AssignmentCreate):
 
     if end < start:
         raise HTTPException(status_code=400, detail="dateEnd не может быть раньше dateStart")
+
+    # Нормализуем раздел
+    section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
 
     batch = db.batch()
     cur = start
@@ -123,8 +137,8 @@ def create_assignment(payload: AssignmentCreate):
             "date": cur.date().isoformat(),
             "workerIds": payload.workerIds,
             "workerNames": payload.workerNames,
-            "sectionId": payload.sectionId,
-            "sectionName": payload.sectionName,
+            "sectionId": section_id,
+            "sectionName": section_name,
             "state": payload.state,
             "comments": payload.comments or "",
             "created_at": datetime.utcnow().isoformat(),
@@ -141,6 +155,7 @@ def create_assignment(payload: AssignmentCreate):
 def update_assignment(assignment_id: str,
                       payload: AssignmentUpdate,
                       current_user: dict = Depends(get_user)):
+    """Редактирование назначения с учётом прав пользователя"""
     ref = db.collection("assignments").document(assignment_id)
     doc = ref.get()
     if not doc.exists:
@@ -178,6 +193,7 @@ def update_assignment(assignment_id: str,
 
 @router.delete("/{assignment_id}", dependencies=[Depends(require_role("admin","manager"))])
 def delete_assignment(assignment_id: str):
+    """Удаление назначения"""
     ref = db.collection("assignments").document(assignment_id)
     if ref.get().exists:
         ref.delete()

@@ -25,6 +25,7 @@ class AssignmentCreate(BaseModel):
     comments: Optional[str] = ""
 
 class AssignmentUpdate(BaseModel):
+    """Модель частичного обновления назначения"""
     statusId: Optional[str] = None
     statusName: Optional[str] = None
     dateStart: Optional[str] = None
@@ -35,6 +36,7 @@ class AssignmentUpdate(BaseModel):
     sectionName: Optional[str] = None
     state: Optional[str] = None
     comments: Optional[str] = None
+
 
 # =============================
 # ⚙️ ВСПОМОГАТЕЛЬНОЕ
@@ -51,6 +53,7 @@ def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -
     sid = section_id or None
     sname = section_name or "Без раздела"
     return sid, sname
+
 
 # =============================
 # 📗 РОУТЫ
@@ -105,8 +108,8 @@ def my_assignments(current_user: dict = Depends(get_user),
 @router.post("/", dependencies=[Depends(require_role("admin","manager"))])
 def create_assignment(payload: AssignmentCreate):
     """Создание назначения на диапазон дат.
-       Исправлено: теперь каждое назначение чётко привязано к одному разделу
-       и не дублируется вниз в PlannerGrid."""
+       Создаёт одну запись для каждого дня периода, 
+       при этом предотвращает дублирование существующих назначений на тот же проект/день/раздел."""
     start_str = _normalize_date(payload.dateStart)
     end_str = _normalize_date(payload.dateEnd or payload.dateStart)
 
@@ -127,6 +130,19 @@ def create_assignment(payload: AssignmentCreate):
     count = 0
 
     while cur <= end:
+        day = cur.date().isoformat()
+
+        # Проверим, не существует ли уже назначение на тот же день/проект/раздел
+        existing = db.collection("assignments")\
+            .where("projectId", "==", payload.projectId)\
+            .where("sectionName", "==", section_name)\
+            .where("date", "==", day)\
+            .limit(1)\
+            .stream()
+        if any(existing):
+            cur += timedelta(days=1)
+            continue
+
         ref = db.collection("assignments").document()
         data = {
             "projectId": payload.projectId,
@@ -134,7 +150,7 @@ def create_assignment(payload: AssignmentCreate):
             "statusName": payload.statusName,
             "dateStart": start_str,
             "dateEnd": end_str,
-            "date": cur.date().isoformat(),
+            "date": day,
             "workerIds": payload.workerIds,
             "workerNames": payload.workerNames,
             "sectionId": section_id,
@@ -148,41 +164,46 @@ def create_assignment(payload: AssignmentCreate):
         count += 1
 
     batch.commit()
-    return {"ok": True, "count": count}
+    return {"ok": True, "created": count}
 
 
 @router.put("/{assignment_id}")
-def update_assignment(assignment_id: str,
-                      payload: AssignmentUpdate,
-                      current_user: dict = Depends(get_user)):
-    """Редактирование назначения с учётом прав пользователя"""
+def update_assignment(
+    assignment_id: str,
+    payload: AssignmentUpdate,
+    current_user: dict = Depends(get_user)
+):
+    """Редактирование назначения с учётом прав пользователя.
+       Частичное обновление: можно передавать только изменённые поля."""
     ref = db.collection("assignments").document(assignment_id)
     doc = ref.get()
     if not doc.exists:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+        raise HTTPException(status_code=404, detail="Назначение не найдено")
 
-    cur = doc.to_dict() or {}
+    current = doc.to_dict() or {}
     role = current_user.get("role")
     email = (current_user.get("email") or "").strip().lower()
-
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
 
+    if not updates:
+        return {"ok": True, "message": "Нет изменений"}
+
     # Менеджеры и админы могут редактировать всё
-    if role in ("admin","manager"):
-        if updates:
-            updates["updated_at"] = datetime.utcnow().isoformat()
-            ref.update(updates)
+    if role in ("admin", "manager"):
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        ref.update(updates)
         return {"ok": True}
 
-    # Монтажник — только state и comments для своих назначений
+    # Монтажники могут менять только state и comments своих назначений
     if role == "installer":
-        if email and email in (cur.get("workerIds") or []):
+        if email and email in (current.get("workerIds") or []):
+            allowed_fields = {"state", "comments"}
+            for k in updates:
+                if k not in allowed_fields:
+                    raise HTTPException(status_code=403, detail=f"Поле '{k}' недоступно для редактирования")
             allowed_states = {"done_pending", "extend_requested"}
-            for key in updates.keys():
-                if key not in ("state", "comments"):
-                    raise HTTPException(status_code=403, detail="Недостаточно прав")
             if "state" in updates and updates["state"] not in allowed_states:
-                raise HTTPException(status_code=400, detail="Недопустимый статус")
+                raise HTTPException(status_code=400, detail="Недопустимый статус для монтажника")
             updates["updated_at"] = datetime.utcnow().isoformat()
             ref.update(updates)
             return {"ok": True}
@@ -195,6 +216,7 @@ def update_assignment(assignment_id: str,
 def delete_assignment(assignment_id: str):
     """Удаление назначения"""
     ref = db.collection("assignments").document(assignment_id)
-    if ref.get().exists:
-        ref.delete()
+    if not ref.get().exists:
+        raise HTTPException(status_code=404, detail="Назначение не найдено")
+    ref.delete()
     return {"ok": True}

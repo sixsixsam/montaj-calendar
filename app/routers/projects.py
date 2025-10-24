@@ -5,6 +5,12 @@ from ..auth import require_role
 from ..firestore import db
 from datetime import datetime
 
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+# =======================
+# 📘 Модели
+# =======================
+
 class ProjectSection(BaseModel):
     id: Optional[str] = None
     name: str
@@ -12,25 +18,37 @@ class ProjectSection(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
-    start_date: str
-    end_date: str
-    status_id: Optional[str] = None
-    manager_uid: Optional[str] = None
-    notes: Optional[str] = ""
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    docs_available: bool = False
+    tech_director: Optional[str] = None
+    senior_brigadier: Optional[str] = None
+    brigadier: Optional[str] = None
+    manager: Optional[str] = None
     active: bool = True
-    sections: Optional[List[ProjectSection]] = []
+    sections: List[dict] = []
+    notes: Optional[str] = ""
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    status_id: Optional[str] = None
-    manager_uid: Optional[str] = None
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    docs_available: Optional[bool] = None
+    tech_director: Optional[str] = None
+    senior_brigadier: Optional[str] = None
+    brigadier: Optional[str] = None
+    manager: Optional[str] = None
     notes: Optional[str] = None
     active: Optional[bool] = None
     sections: Optional[List[ProjectSection]] = None
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+# =======================
+# 📗 Роуты
+# =======================
 
 @router.get("/", dependencies=[Depends(require_role("admin","manager","installer","worker"))])
 def list_projects():
@@ -71,6 +89,12 @@ def get_project(project_id: str):
     data = doc.to_dict()
     data["id"] = doc.id
     return data
+
+@router.get("/archive", dependencies=[Depends(require_role("admin","manager"))])
+def archived_projects():
+    q = db.collection("projects").where("active", "==", False)
+    docs = [{"id": d.id, **(d.to_dict() or {})} for d in q.stream()]
+    return docs
 
 # CORS preflight
 @router.options("/", include_in_schema=False)

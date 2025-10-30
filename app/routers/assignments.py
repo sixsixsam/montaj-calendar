@@ -176,4 +176,4 @@ def delete_assignment(assignment_id: str):
     if not ref.get().exists:
         raise HTTPException(404, "Назначение не найдено")
     ref.delete()
-    return {"ok": True"}
+    return {"ok": True}

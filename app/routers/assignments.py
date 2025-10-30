@@ -7,10 +7,6 @@ from ..firestore import db
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
-# =============================
-# 📘 МОДЕЛИ
-# =============================
-
 class AssignmentCreate(BaseModel):
     projectId: str
     statusId: str
@@ -24,7 +20,6 @@ class AssignmentCreate(BaseModel):
     state: str = "in_progress"
     comments: Optional[str] = ""
 
-
 class AssignmentUpdate(BaseModel):
     statusId: Optional[str] = None
     statusName: Optional[str] = None
@@ -37,25 +32,17 @@ class AssignmentUpdate(BaseModel):
     state: Optional[str] = None
     comments: Optional[str] = None
 
-
-# =============================
-# ⚙️ ВСПОМОГАТЕЛЬНОЕ
-# =============================
-
 def _normalize_date(d: Optional[str]) -> str:
     if not d:
         return ""
     return d.split("T")[0]
-
 
 def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -> tuple[str, str]:
     sid = section_id or None
     sname = section_name or "Без раздела"
     return sid, sname
 
-
 def _resolve_status(status_id: str) -> dict:
-    """Возвращает {id,name,color} из Firestore"""
     if not status_id:
         raise HTTPException(400, "statusId обязателен")
     doc = db.collection("statuses").document(status_id).get()
@@ -63,11 +50,6 @@ def _resolve_status(status_id: str) -> dict:
         raise HTTPException(400, f"Статус '{status_id}' не найден")
     data = doc.to_dict() or {}
     return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
-
-
-# =============================
-# 📗 РОУТЫ
-# =============================
 
 @router.get("/", dependencies=[Depends(require_role("admin", "manager", "installer", "worker"))])
 def list_assignments(
@@ -92,10 +74,8 @@ def list_assignments(
         docs = [x for x in docs if x.get("dateStart", "") <= date_to]
     return docs
 
-
 @router.post("/", dependencies=[Depends(require_role("admin", "manager"))])
 def create_assignment(payload: AssignmentCreate):
-    """Создание одного назначения на диапазон дат"""
     start_str = _normalize_date(payload.dateStart)
     end_str = _normalize_date(payload.dateEnd or payload.dateStart)
 
@@ -130,7 +110,6 @@ def create_assignment(payload: AssignmentCreate):
     }
     ref.set(data)
     return {"ok": True, "id": ref.id}
-
 
 @router.put("/{assignment_id}")
 def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_user: dict = Depends(get_user)):
@@ -168,7 +147,6 @@ def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_use
         return {"ok": True}
 
     raise HTTPException(403, "Недостаточно прав")
-
 
 @router.delete("/{assignment_id}", dependencies=[Depends(require_role("admin", "manager"))])
 def delete_assignment(assignment_id: str):

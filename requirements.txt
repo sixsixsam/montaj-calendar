@@ -7,3 +7,4 @@ pydantic-settings
 google-cloud-firestore
 httpx
 email-validator
+python-multipart

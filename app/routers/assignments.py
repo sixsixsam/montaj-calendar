@@ -7,6 +7,10 @@ from ..firestore import db
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
+# =============================
+# 📘 МОДЕЛИ
+# =============================
+
 class AssignmentCreate(BaseModel):
     projectId: str
     statusId: str
@@ -20,6 +24,7 @@ class AssignmentCreate(BaseModel):
     state: str = "in_progress"
     comments: Optional[str] = ""
 
+
 class AssignmentUpdate(BaseModel):
     statusId: Optional[str] = None
     statusName: Optional[str] = None
@@ -32,24 +37,47 @@ class AssignmentUpdate(BaseModel):
     state: Optional[str] = None
     comments: Optional[str] = None
 
+
+# =============================
+# ⚙️ ВСПОМОГАТЕЛЬНОЕ
+# =============================
+
 def _normalize_date(d: Optional[str]) -> str:
     if not d:
         return ""
     return d.split("T")[0]
+
 
 def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -> tuple[str, str]:
     sid = section_id or None
     sname = section_name or "Без раздела"
     return sid, sname
 
+
 def _resolve_status(status_id: str) -> dict:
+    """Безопасно получает статус из Firestore, создаёт временный, если не найден"""
     if not status_id:
         raise HTTPException(400, "statusId обязателен")
+
     doc = db.collection("statuses").document(status_id).get()
     if not doc.exists:
-        raise HTTPException(400, f"Статус '{status_id}' не найден")
+        print(f"⚠️ Статус '{status_id}' не найден. Создаю временный статус 'Неизвестный'.")
+        db.collection("statuses").document(status_id).set({
+            "name": "Неизвестный",
+            "color": "#999999",
+            "order": 999,
+            "auto_created": True,
+            "created_at": datetime.utcnow().isoformat()
+        })
+        return {"id": status_id, "name": "Неизвестный", "color": "#999999"}
+
     data = doc.to_dict() or {}
     return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
+
+
+# =============================
+# 📗 РОУТЫ
+# =============================
 
 @router.get("/", dependencies=[Depends(require_role("admin", "manager", "installer", "worker"))])
 def list_assignments(
@@ -59,6 +87,7 @@ def list_assignments(
     project_id: Optional[str] = Query(None),
     section_id: Optional[str] = Query(None),
 ):
+    """Получение списка назначений с фильтрацией"""
     q = db.collection("assignments")
     if project_id:
         q = q.where("projectId", "==", project_id)
@@ -74,8 +103,12 @@ def list_assignments(
         docs = [x for x in docs if x.get("dateStart", "") <= date_to]
     return docs
 
+
 @router.post("/", dependencies=[Depends(require_role("admin", "manager"))])
 def create_assignment(payload: AssignmentCreate):
+    """Создание одного назначения на диапазон дат"""
+    print("📥 CREATE ASSIGNMENT:", payload.model_dump())
+
     start_str = _normalize_date(payload.dateStart)
     end_str = _normalize_date(payload.dateEnd or payload.dateStart)
 
@@ -89,7 +122,6 @@ def create_assignment(payload: AssignmentCreate):
         raise HTTPException(400, "Дата окончания раньше даты начала")
 
     section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
-
     st = _resolve_status(payload.statusId)
     status_name = payload.statusName or st["name"]
 
@@ -108,11 +140,15 @@ def create_assignment(payload: AssignmentCreate):
         "comments": payload.comments or "",
         "created_at": datetime.utcnow().isoformat(),
     }
+
+    print("✅ ASSIGNMENT DATA TO SAVE:", data)
     ref.set(data)
     return {"ok": True, "id": ref.id}
 
+
 @router.put("/{assignment_id}")
 def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_user: dict = Depends(get_user)):
+    """Обновление назначения"""
     ref = db.collection("assignments").document(assignment_id)
     doc = ref.get()
     if not doc.exists:
@@ -148,8 +184,10 @@ def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_use
 
     raise HTTPException(403, "Недостаточно прав")
 
+
 @router.delete("/{assignment_id}", dependencies=[Depends(require_role("admin", "manager"))])
 def delete_assignment(assignment_id: str):
+    """Удаление назначения"""
     ref = db.collection("assignments").document(assignment_id)
     if not ref.get().exists:
         raise HTTPException(404, "Назначение не найдено")

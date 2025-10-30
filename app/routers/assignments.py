@@ -14,7 +14,7 @@ router = APIRouter(prefix="/assignments", tags=["assignments"])
 class AssignmentCreate(BaseModel):
     projectId: str
     statusId: str
-    statusName: str
+    statusName: Optional[str] = None
     dateStart: str
     dateEnd: Optional[str] = None
     workerIds: List[str] = []
@@ -54,6 +54,17 @@ def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -
     return sid, sname
 
 
+def _resolve_status(status_id: str) -> dict:
+    """Возвращает {id,name,color} из Firestore"""
+    if not status_id:
+        raise HTTPException(400, "statusId обязателен")
+    doc = db.collection("statuses").document(status_id).get()
+    if not doc.exists:
+        raise HTTPException(400, f"Статус '{status_id}' не найден")
+    data = doc.to_dict() or {}
+    return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
+
+
 # =============================
 # 📗 РОУТЫ
 # =============================
@@ -82,24 +93,6 @@ def list_assignments(
     return docs
 
 
-@router.get("/my", dependencies=[Depends(require_role("installer", "worker", "manager", "admin"))])
-def my_assignments(
-    current_user: dict = Depends(get_user),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None)
-):
-    email = (current_user.get("email") or "").strip().lower()
-    if not email:
-        return []
-    q = db.collection("assignments").where("workerIds", "array_contains", email)
-    docs = [{"id": d.id, **(d.to_dict() or {})} for d in q.stream()]
-    if date_from:
-        docs = [x for x in docs if x.get("dateEnd", x.get("dateStart", "")) >= date_from]
-    if date_to:
-        docs = [x for x in docs if x.get("dateStart", "") <= date_to]
-    return docs
-
-
 @router.post("/", dependencies=[Depends(require_role("admin", "manager"))])
 def create_assignment(payload: AssignmentCreate):
     """Создание одного назначения на диапазон дат"""
@@ -117,21 +110,14 @@ def create_assignment(payload: AssignmentCreate):
 
     section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
 
-    # Проверяем дубликаты
-    existing = db.collection("assignments") \
-        .where("projectId", "==", payload.projectId) \
-        .where("sectionName", "==", section_name) \
-        .where("dateStart", "==", start_str) \
-        .limit(1) \
-        .stream()
-    if any(existing):
-        raise HTTPException(409, "Назначение на этот период уже существует")
+    st = _resolve_status(payload.statusId)
+    status_name = payload.statusName or st["name"]
 
     ref = db.collection("assignments").document()
     data = {
         "projectId": payload.projectId,
-        "statusId": payload.statusId,
-        "statusName": payload.statusName,
+        "statusId": st["id"],
+        "statusName": status_name,
         "dateStart": start_str,
         "dateEnd": end_str,
         "workerIds": payload.workerIds,
@@ -156,6 +142,10 @@ def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_use
     role = current_user.get("role")
     email = (current_user.get("email") or "").strip().lower()
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+
+    if "statusId" in updates:
+        st = _resolve_status(updates["statusId"])
+        updates["statusName"] = updates.get("statusName") or st["name"]
 
     if not updates:
         return {"ok": True, "message": "Нет изменений"}
@@ -186,4 +176,4 @@ def delete_assignment(assignment_id: str):
     if not ref.get().exists:
         raise HTTPException(404, "Назначение не найдено")
     ref.delete()
-    return {"ok": True}
+    return {"ok": True"}

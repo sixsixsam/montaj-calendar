@@ -28,7 +28,7 @@ def create_status(payload: StatusCreate):
     body = payload.model_dump()
     body["created_at"] = datetime.utcnow().isoformat()
     ref.set(body)
-    return {"id": ref.id}
+    return {"id": ref.id, **body}
 
 @router.put("/{status_id}", dependencies=[Depends(require_role("admin","manager"))])
 def update_status(status_id: str, payload: StatusUpdate):

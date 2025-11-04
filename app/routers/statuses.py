@@ -55,7 +55,7 @@ def list_statuses():
 @router.post("/", dependencies=[Depends(require_role("admin", "manager"))])
 def create_status(payload: StatusCreate):
     """Создание нового статуса"""
-    ref = db.collection("statuses").document()
+    ref = db.collection("statuses").document(payload.name.strip())
     body = payload.model_dump()
     body["created_at"] = datetime.utcnow().isoformat()
     ref.set(body)

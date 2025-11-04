@@ -135,13 +135,16 @@ def create_assignment(payload: AssignmentCreate):
 
     section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
     st = _resolve_status(payload.statusId)
-    status_name = payload.statusName or st["name"]
+
+# всегда нормализуем ID и имя перед сохранением
+    payload.statusId = st["id"]
+    payload.statusName = st["name"] or payload.statusName or "Без статуса"
 
     ref = db.collection("assignments").document()
     data = {
         "projectId": payload.projectId,
-        "statusId": st["id"],
-        "statusName": status_name,
+        "statusId": payload.statusId,
+        "statusName": payload.statusName,
         "dateStart": start_str,
         "dateEnd": end_str,
         "workerIds": payload.workerIds,

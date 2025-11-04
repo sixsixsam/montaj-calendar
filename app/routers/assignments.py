@@ -55,20 +55,36 @@ def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -
 
 
 def _resolve_status(status_id: str) -> dict:
-    """Безопасно получает статус из Firestore, выбрасывает ошибку, если не найден."""
+    """Безопасно получает статус из Firestore: ищет по ID, если не найден — по имени."""
     if not status_id:
         raise HTTPException(400, "statusId обязателен")
 
+    # 1️⃣ Пытаемся найти по document ID
     doc = db.collection("statuses").document(status_id).get()
-    if not doc.exists:
-        raise HTTPException(404, f"Статус с id '{status_id}' не найден")
+    if doc.exists:
+        data = doc.to_dict() or {}
+        return {"id": doc.id, "name": data.get("name") or "", "color": data.get("color")}
+
+    # 2️⃣ Если по ID нет — ищем по имени
+    query = db.collection("statuses").where("name", "==", status_id).limit(1).stream()
+    found = next(query, None)
+    if found:
+        data = found.to_dict() or {}
+        return {"id": found.id, "name": data.get("name") or status_id, "color": data.get("color")}
+
+    # 3️⃣ Если вообще нет — создаём временный статус
+        print(f"⚠️ Статус '{status_id}' не найден. Создаю временный статус 'Неизвестный'.")
+        db.collection("statuses").document(status_id).set({
+            "name": "Неизвестный",
+            "color": "#999999",
+            "order": 999,
+            "auto_created": True,
+            "created_at": datetime.utcnow().isoformat()
+        })
+        return {"id": status_id, "name": "Неизвестный", "color": "#999999"}
 
     data = doc.to_dict() or {}
-    return {
-        "id": status_id,
-        "name": data.get("name") or "(без названия)",
-        "color": data.get("color") or "#999999",
-    }
+    return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
 
 
 # =============================

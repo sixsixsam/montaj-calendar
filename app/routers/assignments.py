@@ -4,6 +4,7 @@ from typing import Optional, List
 from datetime import datetime
 from ..auth import require_role, get_user
 from ..firestore import db
+from fastapi.responses import RedirectResponse
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
@@ -43,48 +44,30 @@ class AssignmentUpdate(BaseModel):
 # =============================
 
 def _normalize_date(d: Optional[str]) -> str:
+    """Обрезает время, оставляя YYYY-MM-DD"""
     if not d:
         return ""
     return d.split("T")[0]
 
 
 def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -> tuple[str, str]:
+    """Возвращает нормализованные sectionId / sectionName"""
     sid = section_id or None
     sname = section_name or "Без раздела"
     return sid, sname
 
 
 def _resolve_status(status_id: str) -> dict:
-    """Безопасно получает статус из Firestore: ищет по ID, если не найден — по имени."""
+    """Проверяет, что статус существует в Firestore. Ошибка, если нет."""
     if not status_id:
         raise HTTPException(400, "statusId обязателен")
 
-    # 1️⃣ Пытаемся найти по document ID
     doc = db.collection("statuses").document(status_id).get()
-    if doc.exists:
-        data = doc.to_dict() or {}
-        return {"id": doc.id, "name": data.get("name") or "", "color": data.get("color")}
-
-    # 2️⃣ Если по ID нет — ищем по имени
-    query = db.collection("statuses").where("name", "==", status_id).limit(1).stream()
-    found = next(query, None)
-    if found:
-        data = found.to_dict() or {}
-        return {"id": found.id, "name": data.get("name") or status_id, "color": data.get("color")}
-
-    # 3️⃣ Если вообще нет — создаём временный статус
-        print(f"⚠️ Статус '{status_id}' не найден. Создаю временный статус 'Неизвестный'.")
-        db.collection("statuses").document(status_id).set({
-            "name": "Неизвестный",
-            "color": "#999999",
-            "order": 999,
-            "auto_created": True,
-            "created_at": datetime.utcnow().isoformat()
-        })
-        return {"id": status_id, "name": "Неизвестный", "color": "#999999"}
+    if not doc.exists:
+        raise HTTPException(404, f"Статус с ID '{status_id}' не найден")
 
     data = doc.to_dict() or {}
-    return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
+    return {"id": doc.id, "name": data.get("name") or "", "color": data.get("color")}
 
 
 # =============================
@@ -109,6 +92,7 @@ def list_assignments(
         q = q.where("workerIds", "array_contains", worker_uid)
 
     docs = [{"id": d.id, **(d.to_dict() or {})} for d in q.stream()]
+
     if date_from:
         docs = [x for x in docs if x.get("dateEnd", x.get("dateStart", "")) >= date_from]
     if date_to:
@@ -133,12 +117,13 @@ def create_assignment(payload: AssignmentCreate):
     if end < start:
         raise HTTPException(400, "Дата окончания раньше даты начала")
 
-    section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
+    # Проверяем существование статуса
     st = _resolve_status(payload.statusId)
-
-# всегда нормализуем ID и имя перед сохранением
     payload.statusId = st["id"]
     payload.statusName = st["name"] or payload.statusName or "Без статуса"
+
+    # Нормализуем раздел
+    section_id, section_name = _normalize_section(payload.sectionId, payload.sectionName)
 
     ref = db.collection("assignments").document()
     data = {
@@ -162,7 +147,11 @@ def create_assignment(payload: AssignmentCreate):
 
 
 @router.put("/{assignment_id}")
-def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_user: dict = Depends(get_user)):
+def update_assignment(
+    assignment_id: str,
+    payload: AssignmentUpdate,
+    current_user: dict = Depends(get_user),
+):
     """Обновление назначения"""
     ref = db.collection("assignments").document(assignment_id)
     doc = ref.get()
@@ -173,6 +162,7 @@ def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_use
     email = (current_user.get("email") or "").strip().lower()
     updates = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
 
+    # Обновляем имя статуса, если изменился ID
     if "statusId" in updates:
         st = _resolve_status(updates["statusId"])
         updates["statusName"] = updates.get("statusName") or st["name"]
@@ -180,11 +170,13 @@ def update_assignment(assignment_id: str, payload: AssignmentUpdate, current_use
     if not updates:
         return {"ok": True, "message": "Нет изменений"}
 
+    # Админ/менеджер — всё можно
     if role in ("admin", "manager"):
         updates["updated_at"] = datetime.utcnow().isoformat()
         ref.update(updates)
         return {"ok": True}
 
+    # Монтажник — только state и comments
     if role == "installer":
         data = doc.to_dict() or {}
         if email not in (data.get("workerIds") or []):
@@ -209,10 +201,10 @@ def delete_assignment(assignment_id: str):
     ref.delete()
     return {"ok": True}
 
-from fastapi.responses import RedirectResponse
 
 @router.post("", include_in_schema=False)
 @router.put("", include_in_schema=False)
 @router.delete("", include_in_schema=False)
 def redirect_to_slash():
+    """Редирект без завершающего слеша"""
     return RedirectResponse(url="/assignments/", status_code=308)

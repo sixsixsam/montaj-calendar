@@ -55,24 +55,20 @@ def _normalize_section(section_id: Optional[str], section_name: Optional[str]) -
 
 
 def _resolve_status(status_id: str) -> dict:
-    """Безопасно получает статус из Firestore, создаёт временный, если не найден"""
+    """Безопасно получает статус из Firestore, выбрасывает ошибку, если не найден."""
     if not status_id:
         raise HTTPException(400, "statusId обязателен")
 
     doc = db.collection("statuses").document(status_id).get()
     if not doc.exists:
-        print(f"⚠️ Статус '{status_id}' не найден. Создаю временный статус 'Неизвестный'.")
-        db.collection("statuses").document(status_id).set({
-            "name": "Неизвестный",
-            "color": "#999999",
-            "order": 999,
-            "auto_created": True,
-            "created_at": datetime.utcnow().isoformat()
-        })
-        return {"id": status_id, "name": "Неизвестный", "color": "#999999"}
+        raise HTTPException(404, f"Статус с id '{status_id}' не найден")
 
     data = doc.to_dict() or {}
-    return {"id": status_id, "name": data.get("name") or "", "color": data.get("color")}
+    return {
+        "id": status_id,
+        "name": data.get("name") or "(без названия)",
+        "color": data.get("color") or "#999999",
+    }
 
 
 # =============================

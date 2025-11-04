@@ -143,7 +143,7 @@ def create_assignment(payload: AssignmentCreate):
 
     print("✅ ASSIGNMENT DATA TO SAVE:", data)
     ref.set(data)
-    return {"ok": True, "id": ref.id}
+    return {"id": ref.id, **data}
 
 
 @router.put("/{assignment_id}")
@@ -193,3 +193,11 @@ def delete_assignment(assignment_id: str):
         raise HTTPException(404, "Назначение не найдено")
     ref.delete()
     return {"ok": True}
+
+from fastapi.responses import RedirectResponse
+
+@router.post("", include_in_schema=False)
+@router.put("", include_in_schema=False)
+@router.delete("", include_in_schema=False)
+def redirect_to_slash():
+    return RedirectResponse(url="/assignments/", status_code=308)

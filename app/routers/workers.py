@@ -12,7 +12,7 @@ class WorkerCreate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     active: bool = True
-    type: Optional[str] = "installer"  # "installer" или "brigadier"
+    type: Optional[str] = Field(default="installer", description="Тип монтажника: installer или foreman")
 
 class WorkerUpdate(BaseModel):
     full_name: Optional[str] = None
